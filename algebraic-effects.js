@@ -2,99 +2,105 @@ function isGenerator(x) {
   return x != null && typeof x.next === "function";
 }
 
-function isHandler(x) {
-  return x != null && x.__ISHANDLER === true;
-}
-
 function isOp(x) {
-  return x != null && x.__ISOP === true;
-}
-
-function isCps(x) {
-  return x != null && x.__ISCPS === true;
+  return x != null && x._IS_OP;
 }
 
 export function op(type, data) {
-  return { __ISOP: true, type, data };
+  return { _IS_OP: true, type, data };
 }
 
-export function withHandler(handler, computation) {
-  const handlerComp = { __ISHANDLER: true, handler, computation };
-  computation._return = handlerComp;
-  return handlerComp;
+export function resume(gen, arg) {
+  return resumeGenerator(gen, arg);
 }
 
-export function cps(func) {
-  return { __ISCPS: true, func };
-}
+function resumeGenerator(gen, arg, value, done) {
+  if (done === undefined) ({ value, done } = gen.next(arg));
 
-export function start(computation) {
-  if (isGenerator(computation)) {
-    resumeGenerator(computation, null);
-  } else if (isHandler(computation)) {
-    start(computation.computation);
-  } else if (isOp(computation)) {
-    startOp(computation);
-  } else if (isCps(computation)) {
-    computation.func(computation._return);
-  }
-}
-
-export function resume(computation, result) {
-  if (isGenerator(computation)) {
-    resumeGenerator(computation, result);
-  } else if (isHandler(computation)) {
-    resumeHandler(computation, result);
-  } else if (isOp(computation)) {
-    resume(computation._return, result);
-  } else if (typeof computation === "function") {
-    computation(result);
-  }
-}
-
-function resumeHandler({ handler, _return }, result) {
-  if (handler.return != null) {
-    const returnComp = handler.return(result);
-    returnComp._return = _return;
-    start(returnComp);
-  } else {
-    resume(_return, result);
-  }
-}
-
-function resumeGenerator(gen, arg) {
-  const { done, value } = gen.next(arg);
   if (done) {
-    resume(gen._return, value);
+    const _return = gen._return;
+    if (isGenerator(_return)) {
+      resumeGenerator(_return, value);
+    } else if (typeof _return === "function") {
+      _return(value);
+    }
   } else {
-    value._return = gen;
-    start(value);
+    if (isGenerator(value)) {
+      value._return = gen;
+      resumeGenerator(value, null);
+    } else if (typeof value === "function") {
+      value(gen);
+    } else if (isOp(value)) {
+      while (true) {
+        const result = performOp(value.type, value.data, gen);
+        if (result !== undefined) {
+          ({ value, done } = gen.next(result));
+          if (!isOp(value)) {
+            resumeGenerator(gen, null, value, done);
+            break;
+          }
+        } else {
+          break;
+        }
+      }
+    } else {
+      resumeGenerator(gen, value);
+    }
   }
 }
 
-function startOp(op) {
-  const startComp = op._return;
-  let currentComp = startComp;
-  let fh = isHandler(currentComp) ? startComp.handler[op.type] : null;
-  while (fh == null) {
-    currentComp = currentComp._return;
-    if (currentComp == null) break;
-    fh = isHandler(currentComp) ? currentComp.handler[op.type] : null;
+export function start(gen, onDone) {
+  gen._return = onDone;
+  resumeGenerator(gen, null);
+}
+
+export function withHandler(handler, gen) {
+  function* withHandlerFrame() {
+    const result = yield gen;
+    // eventually handles the return value
+    if (handler.return != null) {
+      return yield handler.return(result);
+    }
+    return result;
   }
-  if (!fh) throw new Error("Unhandled effect " + op.type);
 
-  const handlerReturn = currentComp._return;
-  currentComp._return = null;
+  const withHandlerGen = withHandlerFrame();
+  withHandlerGen._handler = handler;
+  return withHandlerGen;
+}
 
-  const handlerComp = fh(op.data, function resumeCont(value) {
-    return cps(parentComp => {
-      if (parentComp) currentComp._return = parentComp;
-      resume(startComp, value);
-    });
+function performOp(type, data, performGen) {
+  // finds the closest handler for effect `type`
+  let withHandlerGen = performGen;
+  while (
+    withHandlerGen._handler == null ||
+    !withHandlerGen._handler.hasOwnProperty(type)
+  ) {
+    if (withHandlerGen._return == null) break;
+    withHandlerGen = withHandlerGen._return;
+  }
+
+  if (
+    withHandlerGen._handler == null ||
+    !withHandlerGen._handler.hasOwnProperty(type)
+  ) {
+    throw new Error(`Unhandled Effect ${type}!`);
+  }
+
+  // found a handler, get the withHandler Generator
+  const handlerFunc = withHandlerGen._handler[type];
+
+  const handler = handlerFunc(data, function delimitedCont(value) {
+    return currentGen => {
+      withHandlerGen._return = currentGen;
+      resumeGenerator(performGen, value);
+    };
   });
-  if (currentComp._return === null) {
-    currentComp._return = handlerComp;
+  if (isGenerator(handler)) {
+    // will return to the parent of withHandler
+    handler._return = withHandlerGen._return;
+    resumeGenerator(handler, null);
+  } else {
+    return handler;
   }
-  handlerComp._return = handlerReturn;
-  start(handlerComp);
 }
