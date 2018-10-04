@@ -1,30 +1,27 @@
-import { start, resume, op, withHandler } from "../algebraic-effects";
-
-function print(msg) {
-  return op("print", msg);
-}
+import { op, withHandler, cps } from "../algebraic-effects";
+import { log, logError, withLogGroup } from "./logger";
 
 const collect = {
   *return(x) {
     return [x, ""];
   },
-  *print(msg, cont) {
+  *log(data, cont) {
     const [x, acc] = yield cont();
-    return [x, msg + acc];
+    return [x, data.args[0] + acc];
   }
 };
 
 function* main() {
   const [x, acc] = yield withHandler(collect, printABC());
-  console.log("result", x);
-  console.log("printed messages", acc);
+  yield log("result ", x);
+  yield log("printed messages ", acc);
 }
 
 function* printABC() {
-  yield print("A");
-  yield print("B");
-  yield print("C");
+  yield log("A");
+  yield log("B");
+  yield log("C");
   return 10;
 }
 
-start(main());
+export default withLogGroup("collect logs", main());

@@ -1,4 +1,5 @@
-import { start, resume, op, withHandler } from "../algebraic-effects";
+import { op, withHandler, cps } from "../algebraic-effects";
+import { log, logError, withLogGroup } from "./logger";
 
 // define the effect creator
 function raise(err) {
@@ -22,11 +23,11 @@ function* safeDivision(a, b) {
 }
 
 function* main() {
-  const x = yield katch(safeDivision(10, 0), function* (err) {
-    console.error(err);
+  const x = yield katch(safeDivision(10, 0), function*(err) {
+    yield logError(err);
     return 0;
   });
-  console.log("result", x);
+  yield log("result " + x);
 }
 
-start(main());
+export default withLogGroup("exceptions", main());

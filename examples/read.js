@@ -1,4 +1,5 @@
-import { start, resume, op, withHandler } from "../algebraic-effects";
+import { op, withHandler } from "../algebraic-effects";
+import { log, withLogGroup } from "./logger";
 
 const read = op("read");
 
@@ -11,7 +12,7 @@ const alwaysBob = {
 
 function* main() {
   const name = yield readName();
-  console.log("Hi", name);
+  yield log("Hi " + name);
 }
 
 function* readName() {
@@ -20,4 +21,4 @@ function* readName() {
   return `${firstName}, ${lastName}`;
 }
 
-start(withHandler(alwaysBob, main()));
+export default withLogGroup("read", withHandler(alwaysBob, main()));

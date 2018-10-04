@@ -1,4 +1,5 @@
-import { start, resume, op, withHandler } from "../algebraic-effects";
+import { op, withHandler } from "../algebraic-effects";
+import { log, withLogGroup } from "./logger";
 
 const get = op("get");
 
@@ -23,7 +24,7 @@ function withState(state, computation) {
 
 function* main() {
   const result = yield withState(0, sub());
-  console.log("result", result);
+  yield log("result", result);
 }
 
 function* sub() {
@@ -39,4 +40,4 @@ function* counter() {
   return i;
 }
 
-start(main());
+export default withLogGroup("state (closure)", main());

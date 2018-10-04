@@ -1,36 +1,25 @@
-import { start, resume, op, withHandler } from "../algebraic-effects";
-
-function print(msg) {
-  return op("print", msg);
-}
-
-const log = {
-  *print(msg, cont) {
-    console.log(msg);
-    const result = yield cont();
-    return result;
-  }
-};
+import { op, withHandler } from "../algebraic-effects";
+import { log, rawLog, withLogGroup } from "./logger";
 
 // a handler that prints messages on the reversed order
 const reverse = {
-  *print(msg, cont) {
+  *log(data, cont) {
     const result = yield cont();
     // forwards the effect upstream
-    yield print(msg);
+    yield rawLog(data);
     return result;
   }
 };
 
 function* main() {
-  yield withHandler(log, withHandler(reverse, printABC()));
-  console.log("Bye");
+  yield withHandler(reverse, printABC());
+  yield log("Bye");
 }
 
 function* printABC() {
-  yield print("A");
-  yield print("B");
-  yield print("C");
+  yield log("A");
+  yield log("B");
+  yield log("C");
 }
 
-start(main());
+export default withLogGroup("reverse logs", main());
